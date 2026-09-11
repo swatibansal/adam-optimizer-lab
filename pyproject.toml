@@ -1,0 +1,34 @@
+[project]
+name = "optlab"
+version = "0.1.0"
+description = "A small lab for building intuition about neural-network optimizers and learning-rate schedules."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "torch",
+    "numpy",
+    "matplotlib",
+    "pandas",
+    "pytest",
+]
+
+[project.optional-dependencies]
+dev = ["ruff"]
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
