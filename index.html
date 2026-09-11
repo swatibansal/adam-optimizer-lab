@@ -1,0 +1,243 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Optimizer Lab — how neural nets decide how far to step</title>
+<meta name="description" content="Five small, reproducible experiments that make optimizers and learning-rate schedules visible: Adam by hand, bias correction, per-layer update ratios, cosine vs WSD, and a muP width sweep." />
+<style>
+  :root {
+    --bg: #fbfbfd;
+    --panel: #ffffff;
+    --ink: #1c1d22;
+    --muted: #5b5f6b;
+    --line: #e7e8ee;
+    --accent: #3a5bd9;
+    --accent-soft: #eef1fd;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f1116; --panel: #171a21; --ink: #e9eaf0; --muted: #a2a7b6;
+      --line: #262a35; --accent: #8aa2ff; --accent-soft: #1a2136;
+    }
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font-family: var(--sans); line-height: 1.6; -webkit-font-smoothing: antialiased;
+  }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  code { font-family: var(--mono); font-size: 0.9em; background: var(--accent-soft);
+         padding: 0.1em 0.35em; border-radius: 4px; }
+  .wrap { max-width: 940px; margin: 0 auto; padding: 0 20px; }
+
+  header.hero {
+    border-bottom: 1px solid var(--line);
+    background: linear-gradient(180deg, var(--accent-soft), transparent);
+  }
+  header.hero .wrap { padding-top: 56px; padding-bottom: 40px; }
+  .eyebrow { font-family: var(--mono); font-size: 0.8rem; letter-spacing: 0.08em;
+             text-transform: uppercase; color: var(--accent); margin: 0 0 10px; }
+  h1 { font-size: clamp(1.9rem, 4.5vw, 3rem); line-height: 1.1; margin: 0 0 14px; }
+  .lede { font-size: 1.15rem; color: var(--muted); max-width: 60ch; margin: 0 0 22px; }
+  .cta { display: flex; gap: 12px; flex-wrap: wrap; }
+  .btn { display: inline-block; padding: 9px 16px; border-radius: 8px; font-weight: 600;
+         border: 1px solid var(--line); background: var(--panel); color: var(--ink); }
+  .btn.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .btn.primary:hover { text-decoration: none; opacity: 0.92; }
+
+  nav.toc { position: sticky; top: 0; z-index: 5; background: var(--bg);
+            border-bottom: 1px solid var(--line); }
+  nav.toc .wrap { display: flex; gap: 6px 18px; flex-wrap: wrap; padding: 12px 20px;
+                  font-size: 0.9rem; }
+  nav.toc a { color: var(--muted); font-weight: 500; }
+  nav.toc a:hover { color: var(--accent); }
+
+  section { padding: 44px 0; border-bottom: 1px solid var(--line); }
+  h2 { font-size: 1.6rem; margin: 0 0 4px; scroll-margin-top: 60px; }
+  .q { color: var(--muted); font-style: italic; margin: 0 0 18px; }
+  p { margin: 0 0 16px; }
+
+  .glance { width: 100%; border-collapse: collapse; margin: 8px 0 4px; font-size: 0.96rem; }
+  .glance th, .glance td { text-align: left; padding: 11px 12px; border-bottom: 1px solid var(--line);
+                           vertical-align: top; }
+  .glance th { font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); }
+  .glance td:first-child { white-space: nowrap; font-weight: 600; }
+
+  figure { margin: 22px 0 6px; }
+  figure img { width: 100%; height: auto; border: 1px solid var(--line); border-radius: 10px;
+               background: #fff; }
+  figcaption { color: var(--muted); font-size: 0.86rem; margin-top: 8px; }
+
+  .nums { display: flex; flex-wrap: wrap; gap: 10px; margin: 6px 0 4px; }
+  .chip { font-family: var(--mono); font-size: 0.82rem; background: var(--panel);
+          border: 1px solid var(--line); border-radius: 999px; padding: 5px 12px; color: var(--ink); }
+  .chip b { color: var(--accent); }
+
+  table.mono { border-collapse: collapse; font-family: var(--mono); font-size: 0.82rem;
+               width: 100%; overflow-x: auto; display: block; }
+  table.mono th, table.mono td { padding: 6px 10px; border-bottom: 1px solid var(--line);
+                                 text-align: right; white-space: nowrap; }
+  table.mono th:first-child, table.mono td:first-child { text-align: left; }
+
+  .note { background: var(--accent-soft); border: 1px solid var(--line); border-radius: 10px;
+          padding: 14px 16px; font-size: 0.94rem; }
+  footer { padding: 34px 0 60px; color: var(--muted); font-size: 0.9rem; }
+</style>
+</head>
+<body>
+<header class="hero">
+  <div class="wrap">
+    <p class="eyebrow">Optimizer Lab</p>
+    <h1>How a neural network decides how far to step</h1>
+    <p class="lede">Five small, fully reproducible experiments that turn the arithmetic of optimizers
+      and learning-rate schedules into numbers and pictures you can actually read — no ML background required.
+      Everything runs on a laptop CPU and is deterministic to the byte.</p>
+    <div class="cta">
+      <a class="btn primary" href="https://github.com/swatibansal/adam-optimizer-lab">View the code on GitHub</a>
+      <a class="btn" href="#exp1">Jump to the experiments</a>
+    </div>
+  </div>
+</header>
+
+<nav class="toc">
+  <div class="wrap">
+    <a href="#glance">Results at a glance</a>
+    <a href="#exp1">1 · Adam by hand</a>
+    <a href="#exp2">2 · Bias correction</a>
+    <a href="#exp3">3 · Update ratios</a>
+    <a href="#exp4">4 · Cosine vs WSD</a>
+    <a href="#exp5">5 · µP transfer</a>
+  </div>
+</nav>
+
+<main class="wrap">
+
+  <section id="glance">
+    <h2>Results at a glance</h2>
+    <p class="q">The headline number from each experiment. Every one is regenerated from run logs with
+      <code>make report</code>.</p>
+    <table class="glance">
+      <thead><tr><th>Experiment</th><th>Headline</th></tr></thead>
+      <tbody>
+        <tr><td>1 · Adam by hand</td><td>Matches PyTorch's Adam to <code>&lt;1e-9</code>; one weight ends at <code>0.984124</code> after five alternating gradients.</td></tr>
+        <tr><td>2 · Bias correction</td><td>Step 1 is <code>0.0100</code> with correction vs <code>0.0316</code> without — uncorrected is <b>3.16× larger</b>, not smaller.</td></tr>
+        <tr><td>3 · Update ratios</td><td>Per-layer move sizes settle by <b>step 59</b> (warm-up is 30 steps); healthy ratios are ~<code>1e-3</code>.</td></tr>
+        <tr><td>4 · Cosine vs WSD</td><td>Loss @200: cosine <code>0.217</code> / WSD <code>0.269</code>; @300: <code>0.205</code> / <code>0.222</code> — cosine lower at both.</td></tr>
+        <tr><td>5 · µP LR transfer</td><td>Standard best-LR drifts ~10× with width; µP pins it (widths 512 &amp; 1024 both <code>1.78e-3</code>).</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section id="exp1">
+    <h2>1 · Adam, computed by hand</h2>
+    <p class="q">What is the Adam optimizer actually doing to a single weight?</p>
+    <p>Rather than trust a library, this experiment re-implements Adam's arithmetic in plain Python and walks
+      one weight through five hand-picked "hints" (gradients) that alternate between go-up and go-down. Every
+      intermediate number is printed. The hints flip sign every step, yet the weight barely zigzags: the running
+      average <code>m</code> cancels the back-and-forth, so the weight only moves in the direction that persists.</p>
+    <table class="mono">
+      <thead><tr><th>t</th><th>g</th><th>m</th><th>v</th><th>m̂</th><th>v̂</th><th>step</th><th>w</th></tr></thead>
+      <tbody>
+        <tr><td>1</td><td>0.500</td><td>0.050000</td><td>0.00025000</td><td>0.500000</td><td>0.25000000</td><td>0.01000000</td><td>0.990000</td></tr>
+        <tr><td>2</td><td>-0.400</td><td>0.005000</td><td>0.00040975</td><td>0.026316</td><td>0.20497749</td><td>0.00058125</td><td>0.989419</td></tr>
+        <tr><td>3</td><td>0.400</td><td>0.044500</td><td>0.00056934</td><td>0.164207</td><td>0.18996999</td><td>0.00376746</td><td>0.985651</td></tr>
+        <tr><td>4</td><td>-0.500</td><td>-0.009950</td><td>0.00081877</td><td>-0.028933</td><td>0.20500002</td><td>-0.00063902</td><td>0.986290</td></tr>
+        <tr><td>5</td><td>0.500</td><td>0.041045</td><td>0.00106795</td><td>0.100230</td><td>0.21401804</td><td>0.00216656</td><td>0.984124</td></tr>
+      </tbody>
+    </table>
+    <div class="nums" style="margin-top:16px">
+      <span class="chip">final weight <b>0.984124</b></span>
+      <span class="chip">vs torch: max diff <b>&lt;1e-9</b></span>
+    </div>
+  </section>
+
+  <section id="exp2">
+    <h2>2 · Why the "correction" step exists</h2>
+    <p class="q">Adam has two lines of math that look optional. What happens if you delete them?</p>
+    <p>Adam's memories <code>m</code> and <code>v</code> both start at zero and are biased toward zero until they
+      fill up. Contrary to the common intuition that uncorrected steps are <em>tiny</em> at first, they are actually
+      <strong>larger</strong>: because <code>β₂</code> (0.999) is far closer to 1 than <code>β₁</code> (0.9), the
+      uncorrected second moment is suppressed more strongly, so dividing by it inflates the step. It overshoots —
+      peaking around 6.6× the intended size near step 12 — and only then eases back.</p>
+    <figure>
+      <img src="figures/exp2_bias_correction.png" alt="Step size and weight trajectory with bias correction on vs off" loading="lazy" />
+      <figcaption>With correction on (blue) the step is the intended size from step 1; with it off (orange) it starts 3.16× too large and climbs before settling.</figcaption>
+    </figure>
+    <div class="nums">
+      <span class="chip">step-1, on: <b>0.0100</b></span>
+      <span class="chip">step-1, off: <b>0.0316</b></span>
+      <span class="chip">ratio <b>3.16×</b></span>
+    </div>
+  </section>
+
+  <section id="exp3">
+    <h2>3 · How much does each layer actually move?</h2>
+    <p class="q">Are all parts of the network learning at a similar pace, and how long does warm-up matter?</p>
+    <p>A tiny language model trains for 300 steps. After every step, for each layer, we compute one ratio: the size
+      of the change divided by the size of the layer — "what fraction of itself did this layer move?" Training starts
+      with a 30-step warm-up. The dashed line marks where every layer has settled to within 10% of its step-60 value.</p>
+    <figure>
+      <img src="figures/exp3_update_ratio.png" alt="Per-layer update ratio during training, log scale, warm-up shaded" loading="lazy" />
+      <figcaption>One line per layer group (log scale); the warm-up window is shaded and the settle point marked. Healthy is ~1e-3 per step.</figcaption>
+    </figure>
+    <div class="nums">
+      <span class="chip">warm-up: <b>30 steps</b></span>
+      <span class="chip">ratios settle by <b>step 59</b></span>
+      <span class="chip">healthy ≈ <b>1e-3</b>/step</span>
+    </div>
+  </section>
+
+  <section id="exp4">
+    <h2>4 · Two ways to slow down</h2>
+    <p class="q">Should the step size taper off gradually, or stay high and then drop sharply?</p>
+    <p>Two identical models train on identical data; only the learning-rate schedule differs. <strong>Cosine</strong>
+      decays smoothly after warm-up; <strong>WSD</strong> holds the peak flat, then drops fast at the end. At step 200
+      cosine has already slowed while WSD is still at full speed — so WSD looks worse there. The loss panel carries a
+      zoom inset because the whole story lives in a narrow band late in training.</p>
+    <figure>
+      <img src="figures/exp4_cosine_vs_wsd.png" alt="Learning-rate schedules and training loss for cosine vs WSD, with a late-training zoom inset" loading="lazy" />
+      <figcaption>Top: the two schedules. Bottom: training loss with a zoom on steps 130–300. Reported as measured — nothing was tuned to make a schedule win.</figcaption>
+    </figure>
+    <div class="nums">
+      <span class="chip">@200 cosine <b>0.217</b> · WSD <b>0.269</b></span>
+      <span class="chip">@300 cosine <b>0.205</b> · WSD <b>0.222</b></span>
+      <span class="chip">cosine lower at both</span>
+    </div>
+  </section>
+
+  <section id="exp5">
+    <h2>5 · Does the best step size change when the model gets bigger?</h2>
+    <p class="q">If you tune the ideal learning rate on a small model, can you reuse it on a larger one?</p>
+    <p>The model is built at three widths (256 / 512 / 1024) and 13 learning rates are tried on each — once with a
+      standard setup and once with <strong>µP</strong>, a recipe designed to keep the best learning rate fixed as
+      width grows. In the standard panel the best LR drifts down about 10× with width. With the completed µP recipe
+      (width-invariant attention scaling plus a readout multiplier), the optima essentially stop moving: widths 512
+      and 1024 land on the <em>same</em> best LR.</p>
+    <figure>
+      <img src="figures/exp5_lr_sweep.png" alt="Loss vs learning rate at three widths, standard vs muP, minima marked" loading="lazy" />
+      <figcaption>Loss vs learning rate (both axes log). Left: standard — the marked minima drift with width. Right: µP — the minima line up.</figcaption>
+    </figure>
+    <div class="nums">
+      <span class="chip">standard: <b>1.8e-3 → 1.0e-3 → 1.8e-4</b></span>
+      <span class="chip">µP: <b>3.2e-3 → 1.8e-3 → 1.8e-3</b></span>
+      <span class="chip">rec @ width 4096: <b>2.2e-3</b></span>
+      <span class="chip">confidence: <b>medium</b></span>
+    </div>
+    <p class="note" style="margin-top:18px">The µP spread is 1.78× versus the standard parameterization's ~10× — that
+      is the transfer µP promises: tune the learning rate on a small model and reuse it on a big one.</p>
+  </section>
+
+</main>
+
+<footer class="wrap">
+  <p>Built with PyTorch + Matplotlib, CPU-only and deterministic (same seed → byte-identical logs).
+     Figures on this page are the exact outputs committed to the repository.</p>
+  <p><a href="https://github.com/swatibansal/adam-optimizer-lab">github.com/swatibansal/adam-optimizer-lab</a></p>
+</footer>
+</body>
+</html>

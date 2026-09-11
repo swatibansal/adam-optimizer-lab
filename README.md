@@ -27,6 +27,19 @@ Regenerate this table from the run logs any time with `make report`.
 
 ---
 
+## One-page site
+
+`index.html` at the repo root is a self-contained, dependency-free page (inline CSS, no build step, dark-mode aware) that presents all five experiments with their figures and headline numbers. It loads the committed PNGs from `figures/`, so it stays in sync whenever `make all` regenerates them.
+
+Deploy it as static hosting:
+
+- **GitHub Pages:** *Settings → Pages → Source: Deploy from a branch → `main` / `/ (root)`*. Publishes at `https://swatibansal.github.io/adam-optimizer-lab/`.
+- **Netlify:** *New site from Git → this repo*; leave the build command empty and set the publish directory to `.` (the included `netlify.toml` already does this). Drag-and-drop of the folder works too.
+
+Preview locally with `python -m http.server` from the repo root, then open <http://localhost:8000>.
+
+---
+
 ## The idea in two paragraphs
 
 A neural network is a very large collection of adjustable numbers (called weights or parameters). Training means nudging those numbers, over and over, so the network's guesses get better. After each batch of examples, the network computes a **gradient** for every weight: a hint saying "this weight should go up a bit" or "this one should go down."
