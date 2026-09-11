@@ -1,0 +1,5 @@
+# Static one-page site — no build step. Netlify serves the repo root, where
+# index.html references the committed figures under figures/.
+[build]
+  publish = "."
+  command = ""
