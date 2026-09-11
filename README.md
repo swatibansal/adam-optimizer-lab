@@ -2,6 +2,8 @@
 
 Five small experiments that show, with real numbers and pictures, how a neural network decides how far to move each of its internal dials during training. No prior machine learning background needed to follow the results.
 
+**Live site:** <https://swatibansal.github.io/adam-optimizer-lab/>
+
 Runs on a laptop CPU. Experiments 1–4 finish in about a minute combined; the width sweep in Experiment 5 runs at full fidelity and takes ~20 minutes on a 12-core laptop (it has a budget guard for slower machines).
 
 ```
@@ -24,19 +26,6 @@ Plots land in `figures/`, numbers in `runs/*/summary.json`.
 | **5 — µP LR transfer** | Standard best-LR drifts ~10× with width; µP pins it (widths 512 & 1024 both `1.78e-3`), so the LR transfers. |
 
 Regenerate this table from the run logs any time with `make report`.
-
----
-
-## One-page site
-
-`index.html` at the repo root is a self-contained, dependency-free page (inline CSS, no build step, dark-mode aware) that presents all five experiments with their figures and headline numbers. It loads the committed PNGs from `figures/`, so it stays in sync whenever `make all` regenerates them.
-
-Deploy it as static hosting:
-
-- **GitHub Pages:** *Settings → Pages → Source: Deploy from a branch → `main` / `/ (root)`*. Publishes at `https://swatibansal.github.io/adam-optimizer-lab/`.
-- **Netlify:** *New site from Git → this repo*; leave the build command empty and set the publish directory to `.` (the included `netlify.toml` already does this). Drag-and-drop of the folder works too.
-
-Preview locally with `python -m http.server` from the repo root, then open <http://localhost:8000>.
 
 ---
 
