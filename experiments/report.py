@@ -40,7 +40,8 @@ def collect() -> list[tuple[str, str]]:
                 "Exp 2  Bias correction",
                 f"step-1 size {e2['step1_step_size_corrected']:.4f} (on) vs "
                 f"{e2['step1_step_size_uncorrected']:.4f} (off) — "
-                f"{e2['ratio_uncorrected_over_corrected']:.2f}x larger uncorrected",
+                f"{e2['ratio_uncorrected_over_corrected']:.2f}x larger uncorrected; "
+                f"difference negligible after step {e2['difference_negligible_after_step']}",
             )
         )
 
@@ -56,14 +57,14 @@ def collect() -> list[tuple[str, str]]:
 
     e4 = _load_json(RUNS / "exp4" / "summary.json")
     if e4:
-        l200, l300 = e4["loss_at_200"], e4["loss_at_300"]
+        l200 = e4["loss_at_200"]
+        tuned = e4["tuned_peak_lr"]
         rows.append(
             (
                 "Exp 4  Cosine vs WSD",
+                f"tuned peaks cosine {tuned['cosine']:.1e} / WSD {tuned['wsd']:.1e}; "
                 f"@200 cos {l200['cosine']:.3f} / wsd {l200['wsd']:.3f} "
-                f"(lower: {e4['lower_at_200']}); "
-                f"@300 cos {l300['cosine']:.3f} / wsd {l300['wsd']:.3f} "
-                f"(lower: {e4['lower_at_300']})",
+                f"→ keep {e4['keep']}",
             )
         )
 
