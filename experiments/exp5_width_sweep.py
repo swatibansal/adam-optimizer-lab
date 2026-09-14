@@ -186,6 +186,11 @@ def main() -> None:
 
     summary = {
         "steps_per_config": steps,
+        "both_sides_tuned": True,
+        "comparison_note": (
+            "Standard and µP are each swept over the identical learning-rate grid at every "
+            "width, so the transfer comparison never pits a tuned method against an untuned one."
+        ),
         "learning_rates": lrs,
         "argmin_lr": {
             "standard": {str(w): argmin_std[w] for w in cfg.widths},

@@ -20,9 +20,9 @@ Plots land in `figures/`, numbers in `runs/*/summary.json`.
 | Experiment | Headline |
 |---|---|
 | **1 — Adam by hand** | Matches PyTorch's Adam to `<1e-9`; one weight ends at `0.984124` after five alternating gradients. |
-| **2 — Bias correction** | Step 1 is `0.0100` with correction vs `0.0316` without — uncorrected is **3.16× larger**, not smaller. |
+| **2 — Bias correction** | Step 1 is `0.0100` with correction vs `0.0316` without — uncorrected is **3.16× larger**, not smaller; the gap only becomes negligible (<5%) after **step ~2375**. |
 | **3 — Update ratio** | Per-layer move sizes settle by **step 59** (warm-up is 30 steps); healthy ratios are ~`1e-3`. |
-| **4 — Cosine vs WSD** | Loss @200: cosine `0.217` / WSD `0.269`; @300: `0.205` / `0.222` — cosine lower at both. |
+| **4 — Cosine vs WSD** | With each schedule LR-tuned (both to `1.78e-3`), **WSD wins** — loss@200 `0.212` vs cosine `0.220`. Keep WSD. |
 | **5 — µP LR transfer** | Standard best-LR drifts ~10× with width; µP pins it (widths 512 & 1024 both `1.78e-3`), so the LR transfers. |
 
 Regenerate this table from the run logs any time with `make report`.
@@ -34,6 +34,14 @@ Regenerate this table from the run logs any time with `make report`.
 A neural network is a very large collection of adjustable numbers (called weights or parameters). Training means nudging those numbers, over and over, so the network's guesses get better. After each batch of examples, the network computes a **gradient** for every weight: a hint saying "this weight should go up a bit" or "this one should go down."
 
 The **optimizer** is the piece of code that turns those hints into actual moves. The simplest version just moves each weight a fixed fraction of its hint. Modern optimizers are smarter: they remember recent hints, they give quiet weights a louder voice, and they follow a **schedule** that changes the step size over the course of training, the way you drive slowly out of a parking lot, fast on the highway, and slowly again when parking. These experiments make each of those ideas visible.
+
+---
+
+## A note on fair comparisons
+
+Two of these experiments compare methods head-to-head (cosine vs WSD in Exp 4; standard vs µP in Exp 5). For those, **both sides are tuned before any comparison is accepted.** Almost every optimizer or schedule claim that later failed to replicate was really a well-tuned method measured against a badly-tuned one — the "winner" was just the side someone bothered to tune.
+
+Concretely: Exp 4 sweeps each schedule's peak learning rate independently and compares each at its own best; Exp 5 sweeps the learning rate for *both* parameterizations at every width over the identical grid. Exp 4 is a live demonstration of why this matters — pinning both schedules at one hard-coded learning rate reverses the conclusion (see that section).
 
 ---
 
@@ -66,9 +74,11 @@ Adam's two memories (`m`, the gradient direction, and `v`, the gradient size) bo
 
 Here is the twist, and it runs **opposite to the common intuition** that uncorrected steps are tiny at first. Because `β₂` (0.999) is far closer to 1 than `β₁` (0.9), the uncorrected `v` is suppressed *much* more strongly than the uncorrected `m` in the early steps. Dividing an under-sized `m` by an even-more-under-sized `√v` makes the uncorrected step **larger**, not smaller. It overshoots at first and only later eases back toward the intended size as the memories fill.
 
-**What the plot shows** (`figures/exp2_bias_correction.png`): with correction on, the step size is the intended size from step 1 and stays flat. With it off, the first step is already about **3.16×** too large and then keeps *growing*, peaking around **6.6×** near step 12 before easing back — so the weight (right panel) races away far faster than intended.
+**What the plot shows** (`figures/exp2_bias_correction.png`): the first 20 steps both ways. With correction on, the step size is the intended size from step 1 and stays flat. With it off, the first step is already about **3.16×** too large and then keeps *growing*, peaking around **6.6×** near step 12 before easing back — so the weight (right panel) races away far faster than intended.
 
-Headline numbers (`runs/exp2/summary.json`): step-1 size with correction is `0.0100`, without correction `0.0316`, a ratio of **3.16**. (Reported as measured; nothing was tuned to produce this.)
+**When does the difference stop mattering?** The uncorrected/corrected step-size ratio drifts back toward 1 only on the timescale of the second-moment memory, `~1/(1-β₂) ≈ 1000` steps — nothing like the 20 steps plotted. It is still **6.24×** off at step 20 and only closes to within 5% at **step ~2375** (`difference_negligible_after_step` in `runs/exp2/summary.json`). So for short runs bias correction matters a great deal; for very long runs it eventually washes out.
+
+Headline numbers (`runs/exp2/summary.json`): step-1 size with correction is `0.0100`, without correction `0.0316`, a ratio of **3.16**; negligible (<5%) after step **2375**. (Reported as measured; nothing was tuned to produce this.)
 
 ---
 
@@ -95,13 +105,15 @@ Both approaches are used in practice:
 - **Cosine:** after warm-up, the step size follows a smooth curve down to a small value by the end.
 - **WSD (Warmup, Stable, Decay):** after warm-up, hold the step size flat for most of training, then drop it quickly in the final stretch.
 
-Two identical models are trained on identical data with identical randomness; only the schedule differs. Each is planned for 300 steps.
+Two identical models are trained on identical data with identical randomness; only the schedule differs. Each is planned for 300 steps and both are **stopped at step 200** for the head-to-head.
 
-**Why we stop at 200 first:** at step 200, cosine has already slowed down considerably while WSD is still running at full speed. Comparing loss at that moment shows what the "stable" phase looks like before its payoff: WSD typically looks *worse* here. That is the psychologically hard part of using it. Then both runs continue to 300 so the WSD drop is visible.
+**Both sides are tuned first.** Each schedule's peak learning rate is swept independently over the same grid (`1e-3 … 1e-2`) and compared at its own best — see the [fair-comparison note](#a-note-on-fair-comparisons) below. This matters: a shared, untuned LR is exactly how schedule comparisons go wrong.
 
-**What the plot shows** (`figures/exp4_cosine_vs_wsd.png`): top panel is the two step-size schedules, bottom panel is training loss for both. Because the interesting differences live in a narrow band late in training, the loss panel carries a **zoom inset** on steps 130–300 where the cosine-vs-WSD gap and the WSD final drop are actually legible, with the loss values annotated at 200 and 300.
+**What the plot shows** (`figures/exp4_cosine_vs_wsd.png`): top panel is the two tuned step-size schedules, bottom panel is training loss with a **zoom inset** on late training where the difference and the WSD final drop are legible.
 
-**Results** (`runs/exp4/summary.json`): at step 200 cosine leads, `0.217` vs WSD's `0.269` — exactly the "WSD looks worse mid-training" effect described above. Running to step 300, WSD's final decay does pull its loss down (from `0.269` to `0.222`), but on this task and seed it still does **not** overtake cosine (`0.205` vs `0.222`); cosine is lower at both checkpoints. This is reported as-is — no hyperparameters were changed to make either schedule win, and the honest takeaway is that WSD's late-decay payoff was not enough to catch cosine here.
+**Results** (`runs/exp4/summary.json`): both schedules tune to the same peak, `1.78e-3`. At that setting **WSD wins** at the step-200 decision point — loss `0.212` vs cosine `0.220` — and stays ahead at 300 (`0.206` vs `0.214`). **Which model would I keep? WSD.**
+
+This flipped the earlier conclusion, and that is the whole point. When both schedules were pinned at a hard-coded `3e-3` (untuned), cosine appeared to win (`0.221` vs WSD's `0.313` at step 200). But `3e-3` is past the optimum for both; once each is tuned to `1.78e-3`, WSD's longer time at peak pays off and it wins. The "cosine wins" result was an artifact of an under-tuned comparison — reported as measured, nothing tuned to favour either side beyond the honest per-schedule sweep.
 
 ---
 
@@ -115,6 +127,8 @@ The experiment builds the tiny language model at three widths (256, 512, 1024 �
 
 1. **Standard setup:** the model is built the usual way.
 2. **µP setup** (pronounced "mu-P"): a specific recipe for how to initialize the model and scale step sizes per layer as width grows. The claim is that with this recipe, the best step size stays the same across widths.
+
+Both setups are swept over the *same* 13-point learning-rate grid at every width, so neither is handicapped by a fixed learning rate — the same [fair-comparison discipline](#a-note-on-fair-comparisons) applied in Exp 4.
 
 **What the plot shows** (`figures/exp5_lr_sweep.png`): two panels, one per setup. Each has three U-shaped curves (one per width); the bottom of each U is the best step size for that width and is marked with a dot. In the standard panel, expect the dots to drift as width changes. In the µP panel, they should line up.
 
